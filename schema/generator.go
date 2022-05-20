@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -49,17 +50,19 @@ type Generator struct {
 }
 
 // Parse argument DDLs and call `generateDDLs()`
-func GenerateIdempotentDDLs(mode GeneratorMode, desiredSQL string, currentSQL string) ([]string, error) {
+func GenerateIdempotentDDLs(mode GeneratorMode, desiredSQL string, currentSQL string, skipTables []string) ([]string, error) {
 	// TODO: invalidate duplicated tables, columns
 	desiredDDLs, err := ParseDDLs(mode, desiredSQL)
 	if err != nil {
 		return nil, err
 	}
+	desiredDDLs = filterTables(desiredDDLs, skipTables)
 
 	currentDDLs, err := ParseDDLs(mode, currentSQL)
 	if err != nil {
 		return nil, err
 	}
+	currentDDLs = filterTables(currentDDLs, skipTables)
 
 	tables, err := convertDDLsToTables(currentDDLs)
 	if err != nil {
@@ -1769,4 +1772,33 @@ func generateDefaultDefinition(defaultVal Value) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported default value type (valueType: '%d')", defaultVal.valueType)
 	}
+}
+
+func filterTables(ddls []DDL, skipTables []string) []DDL {
+
+	if len(skipTables) <= 0 {
+		return ddls
+	}
+
+	filtered := []DDL{}
+	for _, ddl := range ddls {
+		switch desired := ddl.(type) {
+		case *CreateTable:
+			if !containsRegexpString(skipTables, desired.table.name) {
+				filtered = append(filtered, ddl)
+			}
+		default:
+			filtered = append(filtered, ddl)
+		}
+	}
+	return filtered
+}
+
+func containsRegexpString(strs []string, str string) bool {
+	for _, s := range strs {
+		if regexp.MustCompile("^" + s + "$").MatchString(str) {
+			return true
+		}
+	}
+	return false
 }
